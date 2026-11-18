@@ -31,4 +31,4 @@ The packaged laboratory settings are documented in [HANDOFF.md](docs/HANDOFF.md)
 
 ## Files and ownership
 
-Source is MIT-licensed with third-party components and notices retained. The model includes material trained on non-commercial datasets; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). No source audio, microphone recordings, device addresses, passwords or raw training caches are included. The repository should begin private, with the installable `.eap` and rollback attached as release assets rather than committed as build products.
+Source is MIT-licensed with third-party components and notices retained. The model includes material trained on non-commercial datasets; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). No source audio, microphone recordings, device addresses, passwords or raw training caches are included. The repository is public so recipients can view the source and download release assets without signing in. The installable `.eap` and rollback are attached to the handoff release rather than committed as build products.

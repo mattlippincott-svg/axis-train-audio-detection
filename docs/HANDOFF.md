@@ -64,7 +64,7 @@ Speaker/microphone playback already demonstrated a standalone bell start on the 
 
 ## Preserve and evolve
 
-Create a private repository owned by `mattlippincott-svg`, then share it with the intended developer through GitHub once their account is known. Do not add the coworker's repository as a push destination or overwrite its history. Tag the handoff baseline, attach the EAP/rollback assets, and make future changes on branches.
+The handoff repository owned by `mattlippincott-svg` is public. Send its repository or release link; no GitHub account is needed to view or download it. A recipient can develop a local copy, or fork it using their own GitHub account. Public viewing does not grant permission to push changes directly to this repository. Do not add the coworker's repository as a push destination or overwrite its history. Tag the handoff baseline, attach the EAP/rollback assets, and make future changes on branches.
 
 Keep onsite recordings and credentials outside Git. Store new labels with source/session/site separation, relevant audio settings and measured results. Capture quiet periods and non-train confusers as well as successful passages. Report false alarms per monitored time and detection delay rather than relying only on clip accuracy.
 
