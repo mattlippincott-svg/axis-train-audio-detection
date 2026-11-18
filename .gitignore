@@ -1,0 +1,29 @@
+# Local credentials and recordings
+.env
+.env.*
+!.env.devices.example
+*.pem
+*.key
+*.wav
+*.mp3
+*.aac
+*.adts
+*.flac
+*.ogg
+*.opus
+# Generated builds and working datasets; frozen release model remains versioned.
+build/
+*.eap
+*.o
+*.log
+__pycache__/
+*.pyc
+acap/app/model/
+acap/app/debug/
+acap/app/train_detect
+model/data/
+model/cache/
+model/out/
+model/experiments/
+.claude/
+.DS_Store

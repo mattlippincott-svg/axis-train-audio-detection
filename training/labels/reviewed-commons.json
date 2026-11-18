@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "annotation_source": "User listening review in chat",
+  "interval_timebase": "seconds in decoded source audio",
+  "labels": [
+    {
+      "source_id": "commons-natchez-2011",
+      "creator": "Isma Monfort Vialcanet",
+      "family": "youtube:UCshP8x6Lcmagr8UH_Y10sjw",
+      "role": "train_review",
+      "review_clip": 6,
+      "start_s": 52,
+      "end_s": 62,
+      "review_status": "HUMAN_REVIEWED",
+      "rhythmic_clatter": "present",
+      "rail_squeal": "present_background",
+      "horn": "absent",
+      "bell": "absent",
+      "speech": "absent",
+      "road_vehicle": "absent",
+      "music": "unknown",
+      "engine": "unknown",
+      "air_release": "unknown",
+      "handling_wind": "unknown",
+      "training_use": "US freight mixed clatter/background-squeal positive; not proof of clatter alone",
+      "user_observation": "clip 6, yes, it's there but as kinda in the background, and no."
+    },
+    {
+      "source_id": "commons-bnsf-snow-2016",
+      "creator": "CRSWW RAIL FAN RXR / Brian Rock Railfan",
+      "family": "youtube:UCbJ1AnhANs7SOrVFhMF0E3g",
+      "role": "train_review",
+      "review_clip": 7,
+      "start_s": 57,
+      "end_s": 67,
+      "review_status": "HUMAN_REVIEWED",
+      "train_audibility": "faint_background",
+      "crossing_warning_sound": "present_dominant",
+      "bell": "present_crossing_warning",
+      "crossing_warning_type": "unknown; electronic versus mechanical not established",
+      "rhythmic_clatter": "unknown",
+      "rail_squeal": "unknown",
+      "horn": "unknown",
+      "speech": "unknown",
+      "road_vehicle": "unknown",
+      "music": "unknown",
+      "engine": "unknown",
+      "air_release": "unknown",
+      "handling_wind": "unknown",
+      "training_use": "crossing-warning-dominant mixed example; exclude from independent-clatter positives; not a non-train negative or an electronic-crossing label",
+      "user_observation": "clip 7 the prominent sound in this clip would be the crossing gate sound. the train in the back ground is faint."
+    }
+  ],
+  "notes": [
+    "Clip 6 response follows the requested click-clacks / squeal / other-overlap ordering.",
+    "Clip 7 provides no reliable absence labels for the faint background train sounds.",
+    "Only the exact ten-second intervals have been reviewed.",
+    "Crossing recognition remains a separate disabled/unavailable trigger source; no device settings changed."
+  ]
+}

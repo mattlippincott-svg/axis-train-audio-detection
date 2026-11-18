@@ -1,0 +1,19 @@
+{
+  "version": "0.6.3",
+  "hardware_target": "aarch64",
+  "outputs": [
+    "train_then_bell",
+    "yamnet_521"
+  ],
+  "files": {
+    "experts.npz": "29150caf97953b45a5d828b91273fbc420f3533e95835f86c77502631339fb36",
+    "train-head.h5": "836f54e6dd9b136bdb672f092e758b504aebd03c0b9767174b7600b03b9ac7c9",
+    "traindet.tflite": "2d79e0b5d923e0eec1b9116b6330a015e8849a9e01e2cfb9f19fc6091e9916f0",
+    "yamnet.h5": "13c3308955bbfaef262f175ac9c40e47b134573a93984f009220dd7cc12a1744"
+  },
+  "origin": {
+    "url": "https://github.com/mrdnlabs/axis-audio-train-detection",
+    "base_commit": "23d1076f91aab4b486068ead36a2fca56431cf29",
+    "history": "Fresh handoff snapshot; original checkout and Git history preserved separately."
+  }
+}

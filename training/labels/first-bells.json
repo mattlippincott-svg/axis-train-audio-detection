@@ -1,0 +1,9 @@
+{
+  "review_status": "HUMAN_REVIEWED",
+  "user_statement": "yes and two different versions. the volume levels between the two are significant.",
+  "labels": [
+    {"source_id": "28777", "locomotive_bell": "present", "split": "train", "distinct_bell_version": "A"},
+    {"source_id": "127451", "locomotive_bell": "present", "split": "val", "distinct_bell_version": "B"}
+  ],
+  "limits": ["Presence labels apply to clips, not isolated windows.", "Other sound overlaps were not labelled.", "User reports a significant volume difference; do not infer source distance or real-world sound pressure.", "Do not fit validation source 127451."]
+}

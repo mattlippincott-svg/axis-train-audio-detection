@@ -1,0 +1,9 @@
+{
+  "review_status": "HUMAN_REVIEWED",
+  "user_statement": "clip 3) 9-12 seconds is clear bell, outside of that, the horn is making the microphone adjust. clip 4) no bell sounds at all.",
+  "labels": [
+    {"source_id": "854498", "start_s": 9, "end_s": 12, "locomotive_bell": "clear", "role": "training_reviewed_positive", "scope": "Only complete windows inside this interval may be bell positives. Outside interval is horn-affected; do not label it bell-absent or clean."},
+    {"source_id": "752578", "start_s": 0, "end_s": 30, "locomotive_bell": "not_audible", "role": "bell_only_contrast", "scope": "This remains a train-positive clip, never a generic non-train negative. The unreviewed 30–100 s remainder is not labelled."}
+  ],
+  "notes": ["854498 was used to check the frozen first candidate before review; after fitting it becomes development training, not held-out evidence.", "The 3-second bell interval is too short to evaluate the unchanged 3-second sustained trigger from isolated complete .975-second windows; use window scores without padding or repetition.", "Source 127451 remains outside fitting."]
+}

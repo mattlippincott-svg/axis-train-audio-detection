@@ -1,0 +1,97 @@
+{
+  "rhythm_training": {
+    "rhythm": {
+      "source_ids": [
+        "157864",
+        "216642",
+        "256259",
+        "580528",
+        "636899",
+        "76078",
+        "commons-natchez-2011",
+        "youtube-u5p9VbIsduc"
+      ],
+      "source_windows": 944,
+      "microphone_training_windows": 171
+    },
+    "wheel": {
+      "source_ids": [
+        "157864",
+        "216642",
+        "256259",
+        "580528",
+        "636899",
+        "76078",
+        "769890",
+        "commons-natchez-2011",
+        "youtube-u5p9VbIsduc"
+      ],
+      "source_windows": 1036,
+      "microphone_training_windows": 171
+    }
+  },
+  "rhythm_selected": {
+    "min_level_dbfs": -65,
+    "support": 0.0,
+    "bias": 1.5896321535110474,
+    "validation": {
+      "tp": 182,
+      "fp": 4,
+      "fn": 142,
+      "tn": 1556,
+      "precision": 0.978494623655914,
+      "recall": 0.5617283950617284,
+      "f1": 0.7137254901960786,
+      "negative_clip_false_positive_rate": 0.002564102564102564
+    }
+  },
+  "bell_positive_families": 2,
+  "bell_calibration": "Largest bell bias preserving current validation negative false-trigger set, minus .5 logit safety margin; no positive validation score selects bias. Round two also caps the expert on augmented training bell-absent steam windows at 0.5 before the .5-logit safety margin.",
+  "bell_short_path": {
+    "expert_bias": 2.8671951293945312,
+    "hold_windows": 5,
+    "hop_s": 0.48,
+    "smoothing": "none on independent expert path",
+    "threshold": 0.869,
+    "validation": {
+      "tp": 189,
+      "fp": 6,
+      "fn": 135,
+      "tn": 1552,
+      "precision": 0.9692307692307692,
+      "recall": 0.5833333333333334,
+      "f1": 0.7283236994219653,
+      "negative_clip_false_positive_rate": 0.0038510911424903724
+    },
+    "scope": "Offline independent bell-informed path; inherited train path unchanged; not implemented in device runtime."
+  },
+  "validation_current": {
+    "tp": 183,
+    "fp": 6,
+    "fn": 141,
+    "tn": 1552,
+    "precision": 0.9682539682539683,
+    "recall": 0.5648148148148148,
+    "f1": 0.7134502923976608,
+    "negative_clip_false_positive_rate": 0.0038510911424903724
+  },
+  "validation_short": {
+    "tp": 189,
+    "fp": 6,
+    "fn": 135,
+    "tn": 1552,
+    "precision": 0.9692307692307692,
+    "recall": 0.5833333333333334,
+    "f1": 0.7283236994219653,
+    "negative_clip_false_positive_rate": 0.0038510911424903724
+  },
+  "limitations": [
+    "Two positive recording families; insufficient to establish generalization.",
+    "No test partition scored. Validation historically reused.",
+    "Only raw model sustained scores, without live independent horn triggers or event state.",
+    "Boost-only input conditioning unchanged; gain variants do not simulate real distance or microphones.",
+    "Positive clip includes unlabelled overlapping train sounds; new expert is not a verified bell subtype classifier.",
+    "Digital attenuation checks are diagnostic, not new independent recordings."
+  ],
+  "audio_policy": "No audio, raw microphone recordings or training caches included. The full historic training set is required to refit; bundled frozen parameters support export and application development."
+}

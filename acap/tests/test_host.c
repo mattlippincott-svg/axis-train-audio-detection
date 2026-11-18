@@ -1,0 +1,383 @@
+/* Host unit tests for the pure-logic parts of the ACAP (detector, WAV parser).
+ * Build/run: tools/test_host.sh */
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "../app/detector.h"
+#include "../app/fusion.h"
+#include "../app/wav.h"
+
+static int failures;
+#define CHECK(cond, ...)                                  \
+    do {                                                  \
+        if (!(cond)) {                                    \
+            failures++;                                   \
+            printf("FAIL %s:%d: ", __FILE__, __LINE__);   \
+            printf(__VA_ARGS__);                          \
+            printf("\n");                                 \
+        }                                                 \
+    } while (0)
+
+#define DT 0.48
+
+typedef struct {
+    int started, ended, horns;
+    double t;
+} run_t;
+
+/* Feeds `n` windows with constant scores. */
+static void feed(detector_t* d, det_config_t* c, run_t* r, int n, float head, float horn, float level) {
+    for (int i = 0; i < n; i++) {
+        r->t += DT;
+        det_result_t res = detector_update(d, c, r->t, 1e9 + r->t, DT, head, 0.0f, horn, level);
+        r->started += res.started;
+        r->ended += res.ended;
+        r->horns += res.horn_now;
+    }
+}
+
+static void test_thresholds(void) {
+    CHECK(fabsf(detector_threshold(1) - 0.95f) < 1e-5, "thr(1)");
+    CHECK(fabsf(detector_threshold(100) - 0.059f) < 1e-3, "thr(100)=%f", detector_threshold(100));
+    CHECK(fabsf(detector_threshold(50) - 0.509f) < 1e-3, "thr(50)");
+    CHECK(detector_threshold(0) == detector_threshold(1), "clamp low");
+    CHECK(detector_horn_threshold(1) > detector_horn_threshold(100), "horn monotonic");
+}
+
+static void test_basic_event(void) {
+    detector_t d;
+    det_config_t c;
+    run_t r = {0};
+    detector_init(&d);
+    detector_config_defaults(&c);
+    c.horn_triggers = false;
+    feed(&d, &c, &r, 20, 0.05f, 0, -40); /* quiet background */
+    CHECK(r.started == 0, "no event on background");
+    feed(&d, &c, &r, 4, 0.9f, 0, -30); /* 1.9 s - shorter than trigger (3 s) after smoothing */
+    CHECK(r.started == 0, "short burst must not trigger");
+    feed(&d, &c, &r, 30, 0.9f, 0, -30); /* 14 s train */
+    CHECK(r.started == 1, "train triggers once (got %d)", r.started);
+    CHECK(d.state == DET_ACTIVE, "active during train");
+    feed(&d, &c, &r, 6, 0.05f, 0, -40); /* 2.9 s gap < release */
+    CHECK(r.ended == 0, "gap shorter than release keeps event");
+    feed(&d, &c, &r, 10, 0.9f, 0, -30);
+    feed(&d, &c, &r, 30, 0.05f, 0, -40);
+    CHECK(r.ended == 1, "event ends after release (ended=%d)", r.ended);
+    CHECK(r.started == 1, "gap did not create a 2nd event");
+    const det_event_t* e = detector_history(&d, 0);
+    CHECK(e != NULL, "history entry");
+    if (e) {
+        CHECK(e->duration_s > 15 && e->duration_s < 35, "duration plausible: %.1f", e->duration_s);
+        CHECK(e->peak_score > 0.85f, "peak score %.2f", e->peak_score);
+    }
+}
+
+static void test_level_gate_and_disable(void) {
+    detector_t d;
+    det_config_t c;
+    run_t r = {0};
+    detector_init(&d);
+    detector_config_defaults(&c);
+    c.min_level_db = -50;
+    feed(&d, &c, &r, 30, 0.95f, 0, -60); /* confident but too quiet */
+    CHECK(r.started == 0, "level gate suppresses");
+    c.enabled = false;
+    feed(&d, &c, &r, 30, 0.95f, 0, -20);
+    CHECK(r.started == 0, "disabled suppresses");
+    c.enabled = true;
+    feed(&d, &c, &r, 30, 0.95f, 0, -20);
+    CHECK(r.started == 1, "re-enabled triggers");
+    c.enabled = false;
+    feed(&d, &c, &r, 1, 0.95f, 0, -20);
+    CHECK(r.ended == 1, "disable ends active event");
+}
+
+static void test_horn_and_cooldown(void) {
+    detector_t d;
+    det_config_t c;
+    run_t r = {0};
+    detector_init(&d);
+    detector_config_defaults(&c);
+    feed(&d, &c, &r, 3, 0.1f, 0.9f, -25); /* 1.4 s horn, train score still low */
+    CHECK(r.horns == 1, "one horn fired (got %d)", r.horns);
+    CHECK(r.started == 1, "horn triggers event");
+    CHECK(d.cur.horn, "event flagged horn");
+    feed(&d, &c, &r, 30, 0.1f, 0, -40);
+    CHECK(r.ended == 1, "horn-only event ends");
+    feed(&d, &c, &r, 3, 0.1f, 0.9f, -25); /* within cooldown */
+    CHECK(r.started == 1, "cooldown blocks immediate retrigger");
+    feed(&d, &c, &r, 30, 0.1f, 0.0f, -40);
+    feed(&d, &c, &r, 3, 0.1f, 0.9f, -25);
+    CHECK(r.started == 2, "after cooldown horn triggers again (started=%d)", r.started);
+    c.horn_triggers = false;
+    detector_init(&d);
+    r = (run_t){0};
+    feed(&d, &c, &r, 3, 0.1f, 0.9f, -25);
+    CHECK(r.started == 0 && r.horns == 1, "horn counted but does not trigger when disabled");
+}
+
+static void test_history_ring(void) {
+    detector_t d;
+    det_config_t c;
+    run_t r = {0};
+    detector_init(&d);
+    detector_config_defaults(&c);
+    c.cooldown_s = 0;
+    for (int i = 0; i < DET_HISTORY_LEN + 5; i++) {
+        feed(&d, &c, &r, 12, 0.9f, 0, -30);
+        feed(&d, &c, &r, 25, 0.0f, 0, -40);
+    }
+    CHECK(d.hist_count == DET_HISTORY_LEN, "history capped (%d)", d.hist_count);
+    CHECK(detector_history(&d, DET_HISTORY_LEN) == NULL, "out of range is NULL");
+    CHECK(d.events_total == DET_HISTORY_LEN + 5, "events_total %llu", (unsigned long long)d.events_total);
+    const det_event_t* e = detector_history(&d, 3);
+    double start = e->start_wall;
+    CHECK(detector_set_label(&d, start + 0.001, -1), "label by start time");
+    CHECK(detector_history(&d, 3)->label == -1, "label stored");
+    CHECK(detector_history(&d, 2)->label == 0, "other events untouched");
+    CHECK(!detector_set_label(&d, start + 5.0, 1), "unknown start rejected");
+}
+
+static void test_cap_forceend_clock(void) {
+    detector_t d;
+    det_config_t c;
+    run_t r = {0};
+    detector_init(&d);
+    detector_config_defaults(&c);
+    c.max_event_s = 60;
+    feed(&d, &c, &r, 400, 0.9f, 0, -30); /* ~190 s of constant "train" noise */
+    CHECK(r.started >= 2 && r.ended >= 2, "max duration caps and restarts (started %d ended %d)", r.started, r.ended);
+    const det_event_t* e = detector_history(&d, 0);
+    CHECK(e && e->capped && e->duration_s <= 61, "capped event ~60 s (%.1f)", e ? e->duration_s : -1);
+
+    detector_init(&d);
+    r = (run_t){0};
+    c.max_event_s = 0;
+    feed(&d, &c, &r, 20, 0.9f, 0, -30);
+    CHECK(d.state == DET_ACTIVE, "active before force end");
+    CHECK(detector_force_end(&d, &c, r.t, 1e9 + r.t), "force end returns true");
+    CHECK(d.state == DET_IDLE && d.hist_count == 1, "force end records history");
+    CHECK(!detector_force_end(&d, &c, r.t, 1e9 + r.t), "force end when idle is a no-op");
+
+    /* wall clock steps back 1 h mid-event: duration must come from the monotonic clock */
+    detector_init(&d);
+    double t = 0;
+    for (int i = 0; i < 40; i++, t += DT)
+        detector_update(&d, &c, t, (i < 20 ? 5e9 : 5e9 - 3600) + t, DT, 0.9f, 0, 0, -30);
+    for (int i = 0; i < 30; i++, t += DT)
+        detector_update(&d, &c, t, 5e9 - 3600 + t, DT, 0.0f, 0, 0, -40);
+    e = detector_history(&d, 0);
+    CHECK(e && e->duration_s > 10 && e->duration_s < 25, "duration immune to wall-clock step (%.1f)", e ? e->duration_s : -1);
+}
+
+static void test_fusion(void) {
+    fusion_t f;
+    fusion_config_t c;
+    fusion_init(&f);
+    fusion_config_defaults(&c);
+    /* speech without rail evidence is suppressed */
+    fusion_result_t r = fusion_step(&f, &c, 0.8f, 0.0f, 0.0f, 0.0f, 0.9f, -30);
+    CHECK(r.score < 0.1f, "speech suppressed (%.2f)", r.score);
+    /* speech together with rail evidence (announcement on a platform) is not suppressed */
+    for (int i = 0; i < 3; i++)
+        r = fusion_step(&f, &c, 0.8f, 0.9f, 0.0f, 0.0f, 0.9f, -30);
+    CHECK(r.score > 0.75f, "speech + rail keeps score (%.2f)", r.score);
+    /* suppression strength 0 = off */
+    fusion_init(&f);
+    c.speech_suppression = 0;
+    r = fusion_step(&f, &c, 0.8f, 0.0f, 0.0f, 0.0f, 0.9f, -30);
+    CHECK(r.score > 0.79f, "suppression off (%.2f)", r.score);
+    /* rail gate */
+    fusion_init(&f);
+    fusion_config_defaults(&c);
+    c.require_rail = true;
+    r = fusion_step(&f, &c, 0.9f, 0.05f, 0.0f, 0.0f, 0.0f, -30);
+    CHECK(fabsf(r.score - 0.9f * 0.25f) < 0.01f, "rail gate scales (%.2f)", r.score);
+    r = fusion_step(&f, &c, 0.9f, 0.5f, 0.0f, 0.0f, 0.0f, -30);
+    CHECK(r.score > 0.89f, "rail gate open (%.2f)", r.score);
+    /* loudness rise: quiet background then a loud window passes, a background-level window does not */
+    fusion_init(&f);
+    fusion_config_defaults(&c);
+    c.min_rise_db = 6;
+    for (int i = 0; i < 40; i++)
+        fusion_step(&f, &c, 0.9f, 0.0f, 0.0f, 0.0f, 0.0f, -60);
+    r = fusion_step(&f, &c, 0.9f, 0.0f, 0.0f, 0.0f, 0.0f, -58);
+    CHECK(r.below_rise && r.score < 0.01f, "no rise -> gated");
+    r = fusion_step(&f, &c, 0.9f, 0.0f, 0.0f, 0.0f, 0.0f, -40);
+    CHECK(!r.below_rise && r.score > 0.89f, "rise passes (bg %.1f)", r.background_db);
+    /* other horns are opt-in, and do not require a second rail classification */
+    fusion_init(&f);
+    fusion_config_defaults(&c);
+    r = fusion_step(&f, &c, 0.1f, 0.5f, 0.0f, 0.8f, 0.0f, -30);
+    CHECK(r.horn < 0.01f, "other horn ignored by default");
+    c.other_horns = true;
+    r = fusion_step(&f, &c, 0.1f, 0.0f, 0.0f, 0.8f, 0.0f, -30);
+    CHECK(r.horn > 0.79f, "enabled other horn counts");
+    fusion_init(&f);
+    r = fusion_step(&f, &c, 0.1f, 0.0f, 0.0f, 0.8f, 0.0f, -30);
+    CHECK(r.horn > 0.79f, "enabled other horn counts without rail evidence");
+}
+
+static void put32(unsigned char* p, unsigned v) {
+    p[0] = v & 255; p[1] = (v >> 8) & 255; p[2] = (v >> 16) & 255; p[3] = (v >> 24) & 255;
+}
+static void put16(unsigned char* p, unsigned v) {
+    p[0] = v & 255; p[1] = (v >> 8) & 255;
+}
+
+static size_t make_wav(unsigned char* b, unsigned rate, unsigned ch, unsigned bits, unsigned n) {
+    memcpy(b, "RIFF", 4); put32(b + 4, 36 + n * 2); memcpy(b + 8, "WAVE", 4);
+    memcpy(b + 12, "fmt ", 4); put32(b + 16, 16); put16(b + 20, 1); put16(b + 22, ch);
+    put32(b + 24, rate); put32(b + 28, rate * 2 * ch); put16(b + 32, 2 * ch); put16(b + 34, bits);
+    memcpy(b + 36, "data", 4); put32(b + 40, n * 2);
+    for (unsigned i = 0; i < n; i++)
+        put16(b + 44 + 2 * i, (unsigned)(i == 1 ? 0x8000 : (i == 2 ? 0x4000 : 0)));
+    return 44 + n * 2;
+}
+
+static void test_wav(void) {
+    unsigned char b[256];
+    size_t n = 0;
+    const char* err = NULL;
+    size_t len = make_wav(b, 16000, 1, 16, 10);
+    float* s = wav_decode_pcm16_mono16k(b, len, &n, &err);
+    CHECK(s && n == 10, "valid wav decodes");
+    if (s) {
+        CHECK(s[1] == -1.0f && fabsf(s[2] - 0.5f) < 1e-6, "sample scaling");
+        free(s);
+    }
+    len = make_wav(b, 44100, 1, 16, 10);
+    CHECK(!wav_decode_pcm16_mono16k(b, len, &n, &err), "rejects 44.1 kHz");
+    len = make_wav(b, 16000, 2, 16, 10);
+    CHECK(!wav_decode_pcm16_mono16k(b, len, &n, &err), "rejects stereo");
+    CHECK(!wav_decode_pcm16_mono16k((const unsigned char*)"RIFF", 4, &n, &err), "rejects short");
+    len = make_wav(b, 16000, 1, 16, 10);
+    put32(b + 40, 0x7fffffff); /* lying data size: must clamp to buffer */
+    s = wav_decode_pcm16_mono16k(b, len, &n, &err);
+    CHECK(s && n == 10, "clamps oversized data chunk (n=%zu)", n);
+    free(s);
+    put32(b + 16, 0xfffffff0); /* absurd fmt size */
+    CHECK(!wav_decode_pcm16_mono16k(b, len, &n, &err) || n <= 10, "absurd fmt size is safe");
+}
+
+static void test_crossing_source(void) {
+    detector_t d;
+    det_config_t c;
+    detector_config_defaults(&c);
+    CHECK(!c.crossing_triggers, "crossing source defaults off");
+    c.horn_triggers = false;
+    detector_init(&d);
+    double t = 0;
+    for (int i = 0; i < 10; i++) {
+        t += DT;
+        detector_update_with_crossing(&d, &c, t, t, DT, 0, 0, 0, -30, 1);
+    }
+    CHECK(d.events_total == 0, "disabled crossing cannot start event");
+    c.crossing_triggers = true;
+    for (int i = 0; i < 4; i++) {
+        t += DT;
+        detector_update_with_crossing(&d, &c, t, t, DT, 0, 0, 0, -30, 1);
+    }
+    CHECK(d.events_total == 0, "short crossing sound cannot trigger");
+    t += DT;
+    det_result_t r = detector_update_with_crossing(&d, &c, t, t, DT, 0, 0, 0, -30, 1);
+    CHECK(r.started && d.cur.crossing && !d.cur.horn, "crossing independently starts attributed event");
+    for (int i = 0; i < 25; i++) {
+        t += DT;
+        detector_update_with_crossing(&d, &c, t, t, DT, 0, 0, 0, -30, 1);
+    }
+    CHECK(d.state == DET_ACTIVE, "crossing keeps event active without train score");
+    c.crossing_triggers = false;
+    for (int i = 0; i < 18; i++) {
+        t += DT;
+        detector_update_with_crossing(&d, &c, t, t, DT, 0, 0, 0, -30, 1);
+    }
+    CHECK(d.state == DET_IDLE && detector_history(&d, 0)->crossing, "toggle off releases and preserves history source");
+    c.crossing_triggers = true;
+    for (int i = 0; i < 6; i++) {
+        t += DT;
+        detector_update_with_crossing(&d, &c, t, t, DT, 0, 0, 0, -30, 1);
+    }
+    CHECK(d.events_total == 1, "crossing respects cooldown");
+    detector_init(&d);
+    for (int i = 0; i < 10; i++) {
+        t += DT;
+        detector_update_with_crossing(&d, &c, t, t, DT, 0, 0, 0, -90, 1);
+    }
+    CHECK(d.events_total == 0, "crossing respects volume gate");
+    c.enabled = false;
+    for (int i = 0; i < 10; i++) {
+        t += DT;
+        detector_update_with_crossing(&d, &c, t, t, DT, 0, 0, 0, -30, 1);
+    }
+    CHECK(d.events_total == 0, "crossing respects global disable");
+    c.enabled = true;
+    for (int i = 0; i < 10; i++) {
+        t += DT;
+        detector_update_with_crossing(&d, &c, t, t, DT, 0, 0, 0, -30, NAN);
+    }
+    CHECK(d.events_total == 0, "invalid crossing confidence cannot trigger");
+    c.max_event_s = 3;
+    for (int i = 0; i < 20; i++) {
+        t += DT;
+        detector_update_with_crossing(&d, &c, t, t, DT, 0, 0, 0, -30, 1);
+    }
+    CHECK(d.hist_count == 1 && detector_history(&d, 0)->capped, "crossing respects maximum duration");
+}
+
+static void test_bell_source(void) {
+    detector_t d; det_config_t c;
+    detector_init(&d); detector_config_defaults(&c);
+    c.horn_triggers = false; c.sensitivity = 10;
+    double t = 100;
+    for (int n = 0; n < 4; n++) {
+        t += DT;
+        detector_update_sources(&d, &c, t, t, DT, 0, 0, 0, -30, 0, .99f);
+    }
+    CHECK(d.events_total == 0, "four bell windows cannot start event");
+    t += DT;
+    det_result_t r = detector_update_sources(&d, &c, t, t, DT, 0, 0, 0, -30, 0, .99f);
+    CHECK(r.started && d.cur.bell && !d.cur.horn && !d.cur.crossing, "five bell windows start attributed event");
+    CHECK(d.cur.peak_score > .98f, "bell confidence recorded on bell event");
+    for (int n = 0; n < 20; n++) { t += DT; detector_update_sources(&d, &c, t, t, DT, 0, 0, 0, -30, 0, .99f); }
+    CHECK(d.events_total == 1 && d.state == DET_ACTIVE, "sustained bell holds one event");
+    for (int n = 0; n < 18; n++) { t += DT; detector_update_sources(&d, &c, t, t, DT, 0, 0, 0, -30, 0, 0); }
+    CHECK(d.state == DET_IDLE && detector_history(&d, 0)->bell, "bell releases and preserves attribution");
+    for (int n = 0; n < 6; n++) { t += DT; detector_update_sources(&d, &c, t, t, DT, 0, 0, 0, -30, 0, .99f); }
+    CHECK(d.events_total == 1, "bell respects cooldown");
+    for (int mode = 0; mode < 5; mode++) {
+        detector_init(&d); detector_config_defaults(&c);
+        c.bell_triggers = mode != 0; c.enabled = mode != 1;
+        float level = mode == 2 ? -90 : -30;
+        float bell = mode == 3 ? NAN : (mode == 4 ? 1.1f : .99f);
+        for (int n = 0; n < 10; n++) { t += DT; detector_update_sources(&d, &c, t, t, DT, 0, 0, 0, level, 0, bell); }
+        CHECK(d.events_total == 0, "bell obeys toggle, disable, gate and finite probability range");
+    }
+    detector_init(&d); detector_config_defaults(&c);
+    for (int n = 0; n < 4; n++) { t += DT; detector_update_sources(&d, &c, t, t, DT, 0, 0, 0, -30, 0, .99f); }
+    t += 1;
+    detector_update_sources(&d, &c, t, t, 1, 0, 0, 0, -30, 0, .99f);
+    CHECK(d.events_total == 0 && d.bell_run == 1, "missing hop breaks bell run");
+    t += DT; detector_update_sources(&d, &c, t, t, DT, 0, 0, 0, -30, 0, .1f);
+    CHECK(d.bell_run == 0, "low confidence breaks bell run");
+    c.max_event_s = 3;
+    for (int n = 0; n < 20; n++) { t += DT; detector_update_sources(&d, &c, t, t, DT, 0, 0, 0, -30, 0, .99f); }
+    CHECK(d.hist_count == 1 && detector_history(&d, 0)->capped, "bell respects event cap");
+}
+
+int main(void) {
+    test_bell_source();
+    test_crossing_source();
+    test_thresholds();
+    test_basic_event();
+    test_level_gate_and_disable();
+    test_horn_and_cooldown();
+    test_history_ring();
+    test_cap_forceend_clock();
+    test_fusion();
+    test_wav();
+    printf(failures ? "%d FAILURES\n" : "all host tests passed\n", failures);
+    return failures ? 1 : 0;
+}
